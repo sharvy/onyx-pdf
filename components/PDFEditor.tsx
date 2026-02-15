@@ -73,7 +73,7 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
   const [pageTextItems, setPageTextItems] = useState<TextItem[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
   const [imageAnnotations, setImageAnnotations] = useState<ImageAnnotation[]>([]);
-  const [editMode, setEditMode] = useState<'select' | 'text' | 'image' | null>('select');
+  const [editMode, setEditMode] = useState<'select' | 'text' | 'image' | 'magic' | null>('select');
   const [selectedAnnotation, setSelectedAnnotation] = useState<{ type: 'text' | 'image'; id: string } | null>(null);
   const [textInput, setTextInput] = useState<string>('');
   const [fontSize, setFontSize] = useState<number>(14);
@@ -240,10 +240,11 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
         setSelectedAnnotation({ type: 'text', id: newId });
         setEditingTextId(newId);
       }
+    } else if (activeTool === 'image') {
       setEditMode('image');
       // Don't auto-trigger file input to allow multiple image additions
     } else if (activeTool === 'magic') {
-      setEditMode('magic' as any);
+      setEditMode('magic');
     } else {
       setEditMode('select');
     }
@@ -277,7 +278,7 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
     }
 
     // Smart AI Mode
-    if (editMode === ('magic' as any) && pageContainerRef.current && pageDimensions) {
+    if (editMode === 'magic' && pageContainerRef.current && pageDimensions) {
       const rect = pageContainerRef.current.getBoundingClientRect();
       const relativeX = event.clientX - rect.left;
       const relativeY = event.clientY - rect.top;
@@ -680,9 +681,19 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
+
+      // Generate filename with timestamp
+      const now = new Date();
+      const pad = (num: number) => num.toString().padStart(2, '0');
+      const timestamp = `${pad(now.getDate())}${pad(now.getMonth() + 1)}${now.getFullYear()}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+      const originalName = pdfFile?.name || 'document.pdf';
+      const baseName = originalName.replace(/\.[^/.]+$/, "");
+      const finalFileName = `${baseName}- ${timestamp}.pdf`;
+
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'edited-document.pdf';
+      link.download = finalFileName;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
