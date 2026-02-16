@@ -709,7 +709,7 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
   };
 
   return (
-    <div className="h-full flex items-center justify-center p-8 relative">
+    <div className="min-h-full flex flex-col items-center p-8 pb-40 relative">
       {/* Hidden image input */}
       <input
         type="file"
@@ -872,248 +872,257 @@ const PDFEditor = forwardRef<PDFEditorRef, PDFEditorProps>(({
         </div>
       )}
 
-      {/* PDF Viewer */}
+      {/* PDF Viewer Wrapper to handle scroll area for zoomed content */}
       <div
-        ref={pageContainerRef}
-        onClick={handlePageClick}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        className={`relative inline-block shadow-2xl ${resizeState
-          ? resizeState.corner === 'nw' || resizeState.corner === 'se'
-            ? 'cursor-nwse-resize'
-            : 'cursor-nesw-resize'
-          : editMode === 'image'
-            ? 'cursor-crosshair'
-            : dragState
-              ? 'cursor-grabbing'
-              : 'cursor-default'
-          }`}
+        className="flex justify-center"
         style={{
-          isolation: 'isolate',
-          transform: `scale(${zoom})`,
-          transformOrigin: 'center center',
+          width: pageDimensions ? pageDimensions.width * zoom : 'auto',
+          height: pageDimensions ? pageDimensions.height * zoom : 'auto',
+          minWidth: '100%',
         }}
       >
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <Document file={pdfFile} onLoadSuccess={onDocumentLoadSuccess}>
-            <Page
-              pageNumber={currentPage}
-              renderTextLayer={true}
-              renderAnnotationLayer={true}
-              onLoadSuccess={onPageLoadSuccess}
-              className="border border-gray-300"
-            />
-          </Document>
-        </div>
+        <div
+          ref={pageContainerRef}
+          onClick={handlePageClick}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          className={`relative inline-block shadow-2xl ${resizeState
+            ? resizeState.corner === 'nw' || resizeState.corner === 'se'
+              ? 'cursor-nwse-resize'
+              : 'cursor-nesw-resize'
+            : editMode === 'image'
+              ? 'cursor-crosshair'
+              : dragState
+                ? 'cursor-grabbing'
+                : 'cursor-default'
+            }`}
+          style={{
+            isolation: 'isolate',
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top center',
+          }}
+        >
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <Document file={pdfFile} onLoadSuccess={onDocumentLoadSuccess}>
+              <Page
+                pageNumber={currentPage}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                onLoadSuccess={onPageLoadSuccess}
+                className="border border-gray-300"
+              />
+            </Document>
+          </div>
 
-        {/* Show text annotations on current page */}
-        {textAnnotations
-          .filter((a) => a.page === currentPage)
-          .map((annotation) => {
-            // Convert PDF coordinates to screen coordinates
-            if (!pageDimensions) return null;
+          {/* Show text annotations on current page */}
+          {textAnnotations
+            .filter((a) => a.page === currentPage)
+            .map((annotation) => {
+              // Convert PDF coordinates to screen coordinates
+              if (!pageDimensions) return null;
 
-            const scaleX = pageDimensions.width / pageDimensions.originalWidth;
-            const scaleY = pageDimensions.height / pageDimensions.originalHeight;
+              const scaleX = pageDimensions.width / pageDimensions.originalWidth;
+              const scaleY = pageDimensions.height / pageDimensions.originalHeight;
 
-            const left = annotation.x * scaleX;
-            // PDF Y is from bottom. Screen Y is top.
-            // top + height = (originalHeight - y) * scaleY -> That's confusing.
-            // y (PDF) is bottom of text.
-            // top (Screen) = (originalHeight - y - fontSize) * scaleY
-            // Wait, fontSize is in points. It also scales.
-            const scaledFontSize = annotation.fontSize * scaleY;
-            const top = (pageDimensions.originalHeight - annotation.y - annotation.fontSize) * scaleY;
+              const left = annotation.x * scaleX;
+              // PDF Y is from bottom. Screen Y is top.
+              // top + height = (originalHeight - y) * scaleY -> That's confusing.
+              // y (PDF) is bottom of text.
+              // top (Screen) = (originalHeight - y - fontSize) * scaleY
+              // Wait, fontSize is in points. It also scales.
+              const scaledFontSize = annotation.fontSize * scaleY;
+              const top = (pageDimensions.originalHeight - annotation.y - annotation.fontSize) * scaleY;
 
-            const isSelected = selectedAnnotation?.type === 'text' && selectedAnnotation?.id === annotation.id;
-            const isEditing = editingTextId === annotation.id;
+              const isSelected = selectedAnnotation?.type === 'text' && selectedAnnotation?.id === annotation.id;
+              const isEditing = editingTextId === annotation.id;
 
-            return (
-              <div
-                key={`text-${annotation.id}`}
-                className={`absolute group ${isEditing ? 'select-text' : 'select-none'
-                  } ${editMode === 'select'
-                    ? isSelected
-                      ? 'cursor-move outline outline-3 outline-red-500'
-                      : 'cursor-pointer hover:outline hover:outline-2 hover:outline-red-300'
-                    : ''
-                  }`}
-                style={{
-                  left: left,
-                  top: top,
-                  fontSize: scaledFontSize,
-                  color: `rgb(${annotation.color.r * 255}, ${annotation.color.g * 255}, ${annotation.color.b * 255})`,
-                  userSelect: isEditing ? 'text' : 'none',
-                  zIndex: isSelected ? 20 : 10,
-                  minWidth: '50px',
-                }}
-                onClick={(e) => handleAnnotationClick(e, 'text', annotation.id)}
-                onDoubleClick={(e) => handleAnnotationDoubleClick(e, 'text', annotation.id)}
-                onMouseDown={(e) => {
-                  if (!isEditing) {
-                    handleAnnotationMouseDown(e, 'text', annotation.id);
-                  }
-                }}
-              >
-                {isEditing ? (
-                  <div
-                    contentEditable
-                    suppressContentEditableWarning
-                    onBlur={(e) => {
-                      const newText = e.currentTarget.textContent || 'change text';
-                      setTextAnnotations((prev) =>
-                        prev.map((ann) =>
-                          ann.id === annotation.id
-                            ? { ...ann, text: newText }
-                            : ann
-                        )
-                      );
-                      setEditingTextId(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        e.currentTarget.blur();
-                      }
-                      if (e.key === 'Escape') {
-                        e.preventDefault();
-                        setEditingTextId(null);
-                      }
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="outline-none bg-white/80 px-1 rounded"
-                    autoFocus
-                    style={{
-                      minWidth: '50px',
-                      display: 'inline-block',
-                    }}
-                  >
-                    {annotation.text}
-                  </div>
-                ) : (
-                  annotation.text
-                )}
-                {editMode === 'select' && !isEditing && (
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteAnnotation('text', annotation.id);
-                    }}
-                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600"
-                    title="Delete"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-        {/* Show image annotations on current page */}
-        {imageAnnotations
-          .filter((a) => a.page === currentPage)
-          .map((annotation) => {
-            if (!pageDimensions) return null;
-
-            const scaleX = pageDimensions.width / pageDimensions.originalWidth;
-            const scaleY = pageDimensions.height / pageDimensions.originalHeight;
-
-            const left = annotation.x * scaleX;
-            const top = (pageDimensions.originalHeight - annotation.y - annotation.height) * scaleY;
-
-            const scaledWidth = annotation.width * scaleX;
-            const scaledHeight = annotation.height * scaleY;
-
-            const isSelected = selectedAnnotation?.type === 'image' && selectedAnnotation?.id === annotation.id;
-
-            return (
-              <div
-                key={`img-${annotation.id}`}
-                className={`absolute group select-none ${editMode === 'select'
-                  ? isSelected
-                    ? 'cursor-move'
-                    : 'cursor-pointer'
-                  : ''
-                  }`}
-                style={{
-                  left: left,
-                  top: top,
-                  userSelect: 'none',
-                  zIndex: isSelected ? 20 : 10,
-                }}
-                onClick={(e) => handleAnnotationClick(e, 'image', annotation.id)}
-                onMouseDown={(e) =>
-                  handleAnnotationMouseDown(
-                    e,
-                    'image',
-                    annotation.id
-                  )
-                }
-              >
-                <img
-                  src={annotation.imageData}
-                  alt="annotation"
-                  className={`${editMode === 'select'
-                    ? isSelected
-                      ? 'border-4 border-red-600'
-                      : 'border-2 border-red-400 hover:border-red-500'
-                    : 'border-2 border-red-400'
+              return (
+                <div
+                  key={`text-${annotation.id}`}
+                  className={`absolute group ${isEditing ? 'select-text' : 'select-none'
+                    } ${editMode === 'select'
+                      ? isSelected
+                        ? 'cursor-move outline outline-3 outline-red-500'
+                        : 'cursor-pointer hover:outline hover:outline-2 hover:outline-red-300'
+                      : ''
                     }`}
                   style={{
-                    width: scaledWidth,
-                    height: scaledHeight,
+                    left: left,
+                    top: top,
+                    fontSize: scaledFontSize,
+                    color: `rgb(${annotation.color.r * 255}, ${annotation.color.g * 255}, ${annotation.color.b * 255})`,
+                    userSelect: isEditing ? 'text' : 'none',
+                    zIndex: isSelected ? 20 : 10,
+                    minWidth: '50px',
                   }}
-                  draggable={false}
-                />
-                {/* Delete button */}
-                {editMode === 'select' && (
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteAnnotation('image', annotation.id);
+                  onClick={(e) => handleAnnotationClick(e, 'text', annotation.id)}
+                  onDoubleClick={(e) => handleAnnotationDoubleClick(e, 'text', annotation.id)}
+                  onMouseDown={(e) => {
+                    if (!isEditing) {
+                      handleAnnotationMouseDown(e, 'text', annotation.id);
+                    }
+                  }}
+                >
+                  {isEditing ? (
+                    <div
+                      contentEditable
+                      suppressContentEditableWarning
+                      onBlur={(e) => {
+                        const newText = e.currentTarget.textContent || 'change text';
+                        setTextAnnotations((prev) =>
+                          prev.map((ann) =>
+                            ann.id === annotation.id
+                              ? { ...ann, text: newText }
+                              : ann
+                          )
+                        );
+                        setEditingTextId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setEditingTextId(null);
+                        }
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="outline-none bg-white/80 px-1 rounded"
+                      autoFocus
+                      style={{
+                        minWidth: '50px',
+                        display: 'inline-block',
+                      }}
+                    >
+                      {annotation.text}
+                    </div>
+                  ) : (
+                    annotation.text
+                  )}
+                  {editMode === 'select' && !isEditing && (
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAnnotation('text', annotation.id);
+                      }}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+          {/* Show image annotations on current page */}
+          {imageAnnotations
+            .filter((a) => a.page === currentPage)
+            .map((annotation) => {
+              if (!pageDimensions) return null;
+
+              const scaleX = pageDimensions.width / pageDimensions.originalWidth;
+              const scaleY = pageDimensions.height / pageDimensions.originalHeight;
+
+              const left = annotation.x * scaleX;
+              const top = (pageDimensions.originalHeight - annotation.y - annotation.height) * scaleY;
+
+              const scaledWidth = annotation.width * scaleX;
+              const scaledHeight = annotation.height * scaleY;
+
+              const isSelected = selectedAnnotation?.type === 'image' && selectedAnnotation?.id === annotation.id;
+
+              return (
+                <div
+                  key={`img-${annotation.id}`}
+                  className={`absolute group select-none ${editMode === 'select'
+                    ? isSelected
+                      ? 'cursor-move'
+                      : 'cursor-pointer'
+                    : ''
+                    }`}
+                  style={{
+                    left: left,
+                    top: top,
+                    userSelect: 'none',
+                    zIndex: isSelected ? 20 : 10,
+                  }}
+                  onClick={(e) => handleAnnotationClick(e, 'image', annotation.id)}
+                  onMouseDown={(e) =>
+                    handleAnnotationMouseDown(
+                      e,
+                      'image',
+                      annotation.id
+                    )
+                  }
+                >
+                  <img
+                    src={annotation.imageData}
+                    alt="annotation"
+                    className={`${editMode === 'select'
+                      ? isSelected
+                        ? 'border-4 border-red-600'
+                        : 'border-2 border-red-400 hover:border-red-500'
+                      : 'border-2 border-red-400'
+                      }`}
+                    style={{
+                      width: scaledWidth,
+                      height: scaledHeight,
                     }}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600 z-30"
-                    title="Delete"
-                  >
-                    ×
-                  </button>
-                )}
-                {/* Resize handles - only show when selected */}
-                {editMode === 'select' && isSelected && (
-                  <>
-                    {/* NW corner */}
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nwse-resize z-30"
-                      style={{ top: -6, left: -6 }}
-                      onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'nw')}
-                    />
-                    {/* NE corner */}
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nesw-resize z-30"
-                      style={{ top: -6, right: -6 }}
-                      onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'ne')}
-                    />
-                    {/* SW corner */}
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nesw-resize z-30"
-                      style={{ bottom: -6, left: -6 }}
-                      onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'sw')}
-                    />
-                    {/* SE corner */}
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nwse-resize z-30"
-                      style={{ bottom: -6, right: -6 }}
-                      onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'se')}
-                    />
-                  </>
-                )}
-              </div>
-            );
-          })}
-      </div >
+                    draggable={false}
+                  />
+                  {/* Delete button */}
+                  {editMode === 'select' && (
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAnnotation('image', annotation.id);
+                      }}
+                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600 z-30"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  )}
+                  {/* Resize handles - only show when selected */}
+                  {editMode === 'select' && isSelected && (
+                    <>
+                      {/* NW corner */}
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nwse-resize z-30"
+                        style={{ top: -6, left: -6 }}
+                        onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'nw')}
+                      />
+                      {/* NE corner */}
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nesw-resize z-30"
+                        style={{ top: -6, right: -6 }}
+                        onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'ne')}
+                      />
+                      {/* SW corner */}
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nesw-resize z-30"
+                        style={{ bottom: -6, left: -6 }}
+                        onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'sw')}
+                      />
+                      {/* SE corner */}
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm cursor-nwse-resize z-30"
+                        style={{ bottom: -6, right: -6 }}
+                        onMouseDown={(e) => handleResizeMouseDown(e, annotation.id, 'se')}
+                      />
+                    </>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      </div>
 
       {/* Bottom Control Bar */}
       < div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-white shadow-2xl rounded-full px-6 py-3 flex items-center gap-4 border border-gray-200 z-40" >
